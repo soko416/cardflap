@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Card Flap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #e8efe9;
+    --stage: #0c211b;
+    --panel: #ffffff;
+    --ink: #13281f;
+    --muted: #55705f;
+    --line: #c7d6cb;
+    --brass: #8a6512;
+    --brass-ink: #ffffff;
+    --ok: #1f8a5b;
+    --bad: #b3261e;
+    --font: "Sora", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c211b; --stage: #08160f; --panel: #14362c; --ink: #e9f1ec;
+      --muted: #93b3a4; --line: #25493d; --brass: #d8ad4e; --brass-ink: #1b1403;
+      --ok: #5fd19b; --bad: #ff8a80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c211b; --stage: #08160f; --panel: #14362c; --ink: #e9f1ec;
+    --muted: #93b3a4; --line: #25493d; --brass: #d8ad4e; --brass-ink: #1b1403;
+    --ok: #5fd19b; --bad: #ff8a80;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--font); overflow: hidden; -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Escenario: cámara + capa de superposición */
+  .stage { position: fixed; inset: 0; background: var(--stage); }
+  .view { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; }
+  .view.on { display: block; }
+  .view video, .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #ov { transition: opacity .12s ease; }
+  #ov.off { opacity: 0; }
+
+  /* Portada (antes de abrir la cámara) */
+  .intro {
+    position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 72px) 28px 0;
+    color: #eaf1ec; max-width: 520px; margin: 0 auto;
+  }
+  .intro h1 { font-size: 40px; line-height: 1.05; margin: 0 0 12px; font-weight: 700; letter-spacing: -0.02em; }
+  .intro p { margin: 0; font-size: 16px; line-height: 1.5; color: #a9c5b8; max-width: 34ch; }
+  .intro.hide { display: none; }
+
+  /* Barra superior */
+  .top {
+    position: fixed; left: 0; right: 0; top: 0; z-index: 5;
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
+    display: flex; align-items: center; gap: 10px; pointer-events: none;
+  }
+  .top > * { pointer-events: auto; }
+  .chip {
+    font-size: 13px; padding: 7px 12px; border-radius: 999px;
+    background: rgba(8, 22, 15, .72); color: #eaf1ec; display: none;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .chip.show { display: inline-flex; align-items: center; gap: 8px; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: #e0a93b; display: inline-block; }
+  .chip.found i { background: #5fd19b; }
+  .spacer { flex: 1; }
+  .ghost {
+    font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 999px; border: 0;
+    background: rgba(8, 22, 15, .72); color: #eaf1ec; display: none; cursor: pointer;
+  }
+  .ghost.show { display: inline-block; }
+  .hint {
+    position: fixed; left: 0; right: 0; z-index: 4; text-align: center; font-size: 13px; color: #eaf1ec;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); display: none; pointer-events: none;
+  }
+  .hint span { background: rgba(8, 22, 15, .72); padding: 8px 14px; border-radius: 999px; }
+  .hint.show { display: block; }
+
+  /* Panel de preparación */
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; margin: 0 auto; max-width: 560px;
+    background: var(--panel); color: var(--ink); border-radius: 22px 22px 0 0;
+    padding: 20px 20px calc(env(safe-area-inset-bottom, 0px) + 20px);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, .28);
+  }
+  .sheet.hide { display: none; }
+  .sheet h2 { font-size: 18px; margin: 0 0 14px; font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tile {
+    position: relative; display: flex; flex-direction: column; justify-content: flex-end;
+    aspect-ratio: 4 / 5; border: 1.5px dashed var(--line); border-radius: 14px; overflow: hidden;
+    background: color-mix(in srgb, var(--bg) 70%, transparent) center / cover no-repeat; cursor: pointer;
+  }
+  .tile.filled { border-style: solid; border-color: var(--brass); }
+  .tile input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  .tile .cap {
+    padding: 10px 12px; font-size: 13px; line-height: 1.35; background: color-mix(in srgb, var(--panel) 88%, transparent);
+  }
+  .tile .cap b { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .tile .cap span { color: var(--muted); }
+  .sens { margin: 16px 0 4px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+  .sens input { flex: 1; accent-color: var(--brass); }
+  .go {
+    width: 100%; margin-top: 14px; padding: 15px; font: inherit; font-size: 16px; font-weight: 600;
+    border: 0; border-radius: 14px; background: var(--brass); color: var(--brass-ink); cursor: pointer;
+  }
+  .go:disabled { opacity: .45; cursor: default; }
+  .status { margin: 10px 2px 0; font-size: 13px; color: var(--muted); min-height: 1.3em; }
+  .status.err { color: var(--bad); }
+  @media (prefers-reduced-motion: reduce) { #ov { transition: none; } }
+  button:focus-visible, .tile:focus-within { outline: 3px solid var(--brass); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <div class="view" id="view">
+    <video id="vid" playsinline muted></video>
+    <canvas id="ov"></canvas>
+  </div>
+  <div class="intro" id="intro">
+    <h1>Card Flap</h1>
+    <p>Apunta la cámara a una carta y la cambia por otra imagen, con su perspectiva.</p>
+  </div>
+</div>
+
+<header class="top">
+  <span class="chip" id="chip"><i></i><span id="chipText">Buscando la carta</span></span>
+  <span class="spacer"></span>
+  <button class="ghost" id="gear" type="button">Ajustes</button>
+</header>
+
+<div class="hint" id="hint"><span>Toca la pantalla para cambiar la carta</span></div>
+
+<section class="sheet" id="sheet" aria-label="Preparar la carta">
+  <h2>Prepara tu carta</h2>
+  <div class="tiles">
+    <label class="tile" id="tileBack">
+      <input type="file" accept="image/*" id="fileBack">
+      <div class="cap"><b>Dorso de tu carta</b><span>Foto recta y con buena luz</span></div>
+    </label>
+    <label class="tile" id="tileFace">
+      <input type="file" accept="image/*" id="fileFace">
+      <div class="cap"><b>Imagen que aparece</b><span>Cara u otro diseño</span></div>
+    </label>
+  </div>
+  <div class="sens">
+    <label for="sens">Sensibilidad</label>
+    <input type="range" id="sens" min="8" max="30" value="14" step="1">
+  </div>
+  <button class="go" id="go" type="button" disabled>Empezar</button>
+  <p class="status" id="status">Cargando el motor de visión (unos 10 MB)…</p>
+</section>
+
+<script>
+(function () {
+  "use strict";
+  var CV_URL = "https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.1/dist/opencv.js";
+  var $ = function (id) { return document.getElementById(id); };
+
+  var S = {
+    cv: null, backImg: null, faceImg: null, running: false, busy: false, effect: true,
+    orb: null, bf: null, noMask: null,
+    refPts: [], refDesc: null, refW: 0, refH: 0, repMat: null,
+    detW: 480, detH: 270, outW: 960, outH: 540,
+    lastH: null, lost: 99, minGood: 14, stream: null
+  };
+  var dcanvas = document.createElement("canvas");
+  var dctx = dcanvas.getContext("2d", { willReadFrequently: true });
+  var vid = $("vid"), ov = $("ov"), octx = ov.getContext("2d");
+
+  function setStatus(t, err) { var s = $("status"); s.textContent = t; s.className = "status" + (err ? " err" : ""); }
+  function refreshGo() { $("go").disabled = !(S.cv && S.backImg && S.faceImg); }
+
+  /* ---------- Carga de OpenCV.js ---------- */
+  function loadScript(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement("script");
+      s.src = src; s.async = true; s.onload = res;
+      s.onerror = function () { rej(new Error("script")); };
+      document.head.appendChild(s);
+    });
+  }
+  var lastErr = "";
+  window.addEventListener("error", function (e) { lastErr = (e && e.message) || lastErr; });
+  window.addEventListener("unhandledrejection", function (e) {
+    lastErr = (e && e.reason && (e.reason.message || String(e.reason))) || lastErr;
+  });
+
+  // Espera a que OpenCV esté listo, sea cual sea la forma en que se anuncie
+  // (objeto con onRuntimeInitialized, o promesa), y avisa si tarda demasiado.
+  function waitCV() {
+    return new Promise(function (resolve, reject) {
+      var done = false, t0 = Date.now();
+      function finish(m) { if (done) return; done = true; clearInterval(iv); resolve({ cv: m }); }
+      var c = window.cv;
+      try {
+        if (c && c instanceof Promise) c.then(function (m) { finish(m); });
+        else if (c) c.onRuntimeInitialized = function () { finish(window.cv); };
+      } catch (e) { lastErr = String(e); }
+      var iv = setInterval(function () {
+        var cc = window.cv;
+        if (!done && cc && cc.Mat && cc.ORB && cc.findHomography) { finish(cc); return; }
+        var secs = (Date.now() - t0) / 1000;
+        if (!done && secs > 25 && secs <= 90) {
+          setStatus("Sigue cargando… (" + Math.round(secs) + " s)" + (lastErr ? " Error: " + lastErr : ""));
+        }
+        if (!done && secs > 90) {
+          done = true; clearInterval(iv);
+          reject(new Error(lastErr || "timeout"));
+        }
+      }, 300);
+    });
+  }
+
+  if (typeof WebAssembly === "undefined") {
+    setStatus("Este navegador no admite WebAssembly, necesario para la visión.", true);
+  } else {
+    var startLoading = function () { setTimeout(function () {
+    loadScript(CV_URL).then(waitCV).then(function (r) {
+      var c = r.cv;
+      S.cv = c;
+      try { S.orb = new c.ORB(1000); } catch (e) { S.orb = new c.ORB(); }
+      S.bf = new c.BFMatcher(c.NORM_HAMMING, false);
+      S.noMask = new c.Mat();
+      setStatus(S.backImg && S.faceImg ? "Listo." : "Elige las dos imágenes para empezar.");
+      refreshGo();
+    }).catch(function (e) {
+      var why = (e && e.message) || lastErr || "";
+      setStatus("No se pudo cargar el motor de visión" + (why ? " (" + why + ")" : "") +
+        ". Recarga la página; si persiste, dímelo con ese mensaje.", true);
+    });
+    }, 600); };
+    if (document.readyState === "complete") startLoading();
+    else window.addEventListener("load", startLoading);
+  }
+
+  /* ---------- Selección de imágenes ---------- */
+  function wirePicker(inputId, tileId, key) {
+    $(inputId).addEventListener("change", function (e) {
+      var f = e.target.files && e.target.files[0];
+      if (!f) return;
+      var url = URL.createObjectURL(f);
+      var img = new Image();
+      img.onload = function () {
+        S[key] = img;
+        var t = $(tileId);
+        t.style.backgroundImage = "url(" + url + ")";
+        t.classList.add("filled");
+        if (S.cv) setStatus("Listo.");
+        refreshGo();
+      };
+      img.onerror = function () { setStatus("No se pudo leer esa imagen.", true); };
+      img.src = url;
+    });
+  }
+  wirePicker("fileBack", "tileBack", "backImg");
+  wirePicker("fileFace", "tileFace", "faceImg");
+  $("sens").addEventListener("input", function (e) { S.minGood = +e.target.value; });
+  S.minGood = +$("sens").value;
+
+  /* ---------- Referencia (dorso) y reemplazo ---------- */
+  function drawToCanvas(img, w, h) {
+    var c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(img, 0, 0, w, h);
+    return c;
+  }
+  function setupReference() {
+    var cv = S.cv;
+    if (S.refDesc) { S.refDesc.delete(); S.refDesc = null; }
+    if (S.repMat) { S.repMat.delete(); S.repMat = null; }
+
+    var w = Math.min(500, S.backImg.naturalWidth);
+    var h = Math.round(w * S.backImg.naturalHeight / S.backImg.naturalWidth);
+    S.refW = w; S.refH = h;
+
+    var rgba = cv.imread(drawToCanvas(S.backImg, w, h));
+    var gray = new cv.Mat();
+    cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
+    var kp = new cv.KeyPointVector();
+    var desc = new cv.Mat();
+    S.orb.detectAndCompute(gray, S.noMask, kp, desc);
+    S.refPts = [];
+    for (var i = 0; i < kp.size(); i++) { var p = kp.get(i).pt; S.refPts.push({ x: p.x, y: p.y }); }
+    S.refDesc = desc;
+    rgba.delete(); gray.delete(); kp.delete();
+
+    S.repMat = cv.imread(drawToCanvas(S.faceImg, w, h)); // se estira al tamaño del dorso
+    S.lastH = null; S.lost = 99;
+    return S.refPts.length >= 20;
+  }
+
+  /* ---------- Cámara ---------- */
+  function startCamera() {
+    if (S.stream) return Promise.resolve();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return Promise.reject(new Error("nocam"));
+    }
+    return navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    }).then(function (stream) {
+      S.stream = stream;
+      vid.srcObject = stream;
+      return vid.play();
+    }).then(function () {
+      return new Promise(function (res) {
+        if (vid.videoWidth) return res();
+        vid.onloadedmetadata = function () { res(); };
+      });
+    }).then(function () {
+      var vw = vid.videoWidth, vh = vid.videoHeight, ratio = vw / vh;
+      S.detW = 480; S.detH = Math.round(480 / ratio);
+      S.outW = 960; S.outH = Math.round(960 / ratio);
+      dcanvas.width = S.detW; dcanvas.height = S.detH;
+      ov.width = S.outW; ov.height = S.outH;
+      var v = $("view");
+      v.style.aspectRatio = vw + " / " + vh;
+      v.style.width = "min(100vw, calc(100dvh * " + ratio + "))";
+      v.classList.add("on");
+    });
+  }
+
+  /* ---------- Detección ---------- */
+  function plausible(H) {
+    var corners = [[0, 0], [S.refW, 0], [S.refW, S.refH], [0, S.refH]], pts = [];
+    for (var i = 0; i < 4; i++) {
+      var X = corners[i][0], Y = corners[i][1];
+      var w = H[6] * X + H[7] * Y + H[8];
+      if (w <= 1e-6) return false;
+      pts.push([(H[0] * X + H[1] * Y + H[2]) / w, (H[3] * X + H[4] * Y + H[5]) / w]);
+    }
+    var sign = 0, area = 0;
+    for (var j = 0; j < 4; j++) {
+      var a = pts[j], b = pts[(j + 1) % 4], c = pts[(j + 2) % 4];
+      var cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+      var s = cr > 0 ? 1 : -1;
+      if (sign === 0) sign = s; else if (s !== sign) return false;
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    area = Math.abs(area) / 2;
+    var frame = S.detW * S.detH;
+    return area > frame * 0.004 && area < frame * 1.6;
+  }
+
+  function estimate(kp, desc) {
+    var cv = S.cv;
+    if (desc.rows < 2 || !S.refDesc || S.refDesc.rows < 2) return null;
+    var knn = new cv.DMatchVectorVector();
+    S.bf.knnMatch(S.refDesc, desc, knn, 2);
+    var src = [], dst = [];
+    for (var i = 0; i < knn.size(); i++) {
+      var m = knn.get(i);
+      if (m.size() < 2) continue;
+      var a = m.get(0), b = m.get(1);
+      if (a.distance < 0.75 * b.distance) {
+        var p = S.refPts[a.queryIdx], q = kp.get(a.trainIdx).pt;
+        src.push(p.x, p.y); dst.push(q.x, q.y);
+      }
+    }
+    knn.delete();
+    var n = src.length / 2;
+    if (n < S.minGood) return null;
+
+    var sm = cv.matFromArray(n, 1, cv.CV_32FC2, src);
+    var dm = cv.matFromArray(n, 1, cv.CV_32FC2, dst);
+    var mask = new cv.Mat();
+    var h = cv.findHomography(sm, dm, cv.RANSAC, 4, mask);
+    var result = null;
+    if (!h.empty() && cv.countNonZero(mask) >= Math.max(8, S.minGood - 4)) {
+      var arr = Array.prototype.slice.call(h.data64F);
+      var d = arr[8] || 1;
+      for (var k = 0; k < 9; k++) arr[k] /= d;
+      if (plausible(arr)) result = arr;
+    }
+    sm.delete(); dm.delete(); mask.delete(); h.delete();
+    return result;
+  }
+
+  function smooth(h) {
+    if (!S.lastH) { S.lastH = h; return h; }
+    var out = new Array(9);
+    for (var i = 0; i < 9; i++) out[i] = 0.6 * h[i] + 0.4 * S.lastH[i];
+    var d = out[8] || 1;
+    for (var j = 0; j < 9; j++) out[j] /= d;
+    S.lastH = out;
+    return out;
+  }
+
+  function setChip(found) {
+    var c = $("chip");
+    c.classList.toggle("found", found);
+    $("chipText").textContent = found ? "Carta detectada" : "Buscando la carta";
+  }
+
+  function detect() {
+    var cv = S.cv;
+    dctx.drawImage(vid, 0, 0, S.detW, S.detH);
+    var rgba = cv.imread(dcanvas);
+    var gray = new cv.Mat();
+    cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
+    var kp = new cv.KeyPointVector();
+    var desc = new cv.Mat();
+    S.orb.detectAndCompute(gray, S.noMask, kp, desc);
+
+    var found = estimate(kp, desc);
+    var H = null;
+    if (found) { S.lost = 0; H = smooth(found); }
+    else if (S.lost++ < 4) { H = S.lastH; }
+    else { S.lastH = null; }
+
+    if (H) {
+      var k = S.outW / S.detW, M = H.slice();
+      for (var i = 0; i < 6; i++) M[i] *= k;
+      var Mm = cv.matFromArray(3, 3, cv.CV_64F, M);
+      var dst = new cv.Mat();
+      cv.warpPerspective(S.repMat, dst, Mm, new cv.Size(S.outW, S.outH),
+        cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0, 0, 0, 0));
+      cv.imshow(ov, dst);
+      dst.delete(); Mm.delete();
+    } else {
+      octx.clearRect(0, 0, ov.width, ov.height);
+    }
+    setChip(!!found);
+    rgba.delete(); gray.delete(); kp.delete(); desc.delete();
+  }
+
+  function tick() {
+    if (!S.running) return;
+    requestAnimationFrame(tick);
+    if (S.busy || vid.readyState < 2) return;
+    S.busy = true;
+    try { detect(); } catch (e) { console.error(e); }
+    S.busy = false;
+  }
+
+  /* ---------- Interfaz ---------- */
+  function showSheet(show) {
+    $("sheet").classList.toggle("hide", !show);
+    $("gear").classList.toggle("show", !show && S.running);
+    $("chip").classList.toggle("show", !show && S.running);
+    $("hint").classList.toggle("show", !show && S.running);
+  }
+
+  $("go").addEventListener("click", function () {
+    $("go").disabled = true;
+    setStatus("Analizando el dorso…");
+    setTimeout(function () {
+      var okRef;
+      try { okRef = setupReference(); } catch (e) { console.error(e); okRef = false; }
+      if (!okRef) {
+        setStatus("Esa foto del dorso tiene muy poca textura. Prueba con otra más nítida y con más luz.", true);
+        refreshGo();
+        return;
+      }
+      setStatus("Abriendo la cámara…");
+      startCamera().then(function () {
+        S.running = true;
+        $("intro").classList.add("hide");
+        showSheet(false);
+        setStatus("Listo.");
+        refreshGo();
+        tick();
+      }).catch(function (err) {
+        var msg = "No se pudo abrir la cámara. Permite el acceso en el navegador";
+        if (err && err.message === "nocam") msg = "Este navegador no permite usar la cámara desde esta página";
+        setStatus(msg + ", o abre el enlace directamente en Chrome.", true);
+        refreshGo();
+      });
+    }, 30);
+  });
+
+  $("gear").addEventListener("click", function () { showSheet(true); });
+
+  $("stage").addEventListener("click", function () {
+    if (!S.running || !$("sheet").classList.contains("hide")) return;
+    S.effect = !S.effect;
+    ov.classList.toggle("off", !S.effect);
+  });
+})();
+</script>
+</body>
+</html>
